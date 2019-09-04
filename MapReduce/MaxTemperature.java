@@ -1,3 +1,18 @@
+/*
+ //Apply your MapReduce programming knowledge and write a MapReduce program to 
+ //process a dataset with multiple temperatures for a year. You need to process the dataset to 
+ //find out the maximum temperature for each year in the dataset.
+
+//Sample data set
+1900 23
+1900 25
+1900 45
+1901 47
+1901 34
+1902 34
+1903 38
+ */
+
 import java.io.IOException;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
