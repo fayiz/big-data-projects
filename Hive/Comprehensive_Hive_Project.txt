@@ -1,0 +1,47 @@
+A. Create Database
+------------------
+create database retail;
+
+create table txnrecords(id INT, member_id INT, loan_amnt DOUBLE, funded_amnt DOUBLE, funded_amnt_inv  DOUBLE, term STRING, int_rate DOUBLE, installment STRING, grade STRING, sub_grade STRING,
+emp_title STRING, emp_length STRING, home_ownership STRING, annual_inc DOUBLE, is_inc_v STRING, issue_d STRING, loan_status STRING, pymnt_plan STRING, url STRING, desc STRING, purpose STRING,
+title STRING, zip_code STRING, addr_state  STRING, dti STRING, delinq_2yrs STRING,  earliest_cr_line  STRING, inq_last_6mths  STRING, mths_since_last_delinq  STRING, mths_since_last_record  STRING,
+open_acc  STRING, pub_rec  STRING, revol_bal  STRING, revol_util  STRING, total_acc  STRING, initial_list_status  STRING, out_prncp  STRING, out_prncp_inv  STRING, total_pymnt  STRING,
+total_pymnt_inv  STRING, total_rec_prncp STRING, total_rec_int  STRING, total_rec_late_fee  STRING, recoveries STRING, collection_recovery_fee DOUBLE, last_pymnt_d  STRING,
+last_pymnt_amnt DOUBLE, next_pymnt_d  STRING, last_credit_pull_d  STRING, collections_12_mths_ex_med  STRING, mths_since_last_major_derog  STRING, policy_code  STRING)
+row format delimited
+fields terminated by ','
+stored as textfile;
+
+B. Select Database
+------------------
+use retail;
+
+C. Create table for storing transactional records
+-------------------------------------------------
+LOAD DATA LOCAL INPATH "Datasets/LoanData.csv" OVERWRITE INTO TABLE txnrecords;
+
+
+
+1. Find the list of people with grade “B” who have taken loan. 
+
+SELECT member_id, loan_amnt FROM txnrecords WHERE grade = 'B' AND loan_amnt > 0;
+
+2. Find the list of people  having interest more than  1000. 
+SELECT member_id FROM txnrecords WHERE total_rec_int > 1000;
+
+3. Find the list of people  having loan amount more than 1000.
+SELECT member_id FROM txnrecords WHERE loan_amnt > 1000;
+
+4. Get the highest loan amount given to grade users (A-G).
+SELECT grade, MAX(loan_amnt) FROM txnrecords GROUP BY grade;
+
+5. Highest loan amount given in that year with that Employee id and Employees annual income. 
+SELECT MAX(loan_amnt) FROM txnrecords;
+SELECT member_id, annual_inc, loan_amnt FROM txnrecords WHERE loan_amnt = 35000.0; 
+
+6. Get the total number of loans with loan id and load amount which are having loan status as Late.
+SELECT id, loan_amnt FROM txnrecords WHERE loan_status = 'Default';
+
+7. Average loan interest rate with 60-month term and 36-month term. 
+SELECT term, AVG(int_rate) FROM txnrecords GROUP BY term;
+
