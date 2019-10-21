@@ -1,0 +1,10 @@
+
+CREATE TABLE nyse_daily_prices(exchnge STRING, stocktype STRING, txndate STRING, val1 DOUBLE, val2 DOUBLE, val3 DOUBLE, val4 DOUBLE, val5 DOUBLE, val6 DOUBLE)
+row format delimited
+fields terminated by ','
+lines terminated by '\n'
+stored as textfile;
+
+LOAD DATA LOCAL INPATH '/mnt/home/edureka_719500/Datasets/NYSE_daily_prices_Q.csv' OVERWRITE INTO TABLE nyse_daily_prices;
+
+SELECT stocktype, month(txndate) txnmonth, sum(val6) FROM nyse_daily_prices GROUP BY stocktype, month(txndate);
