@@ -1,0 +1,223 @@
+####################################################################
+#CREATE EXTERNAL TABLE ON JSONDUMP DATA
+create external table if not exists electronics_jsondump_s3 (json_string string) location 's3://electronicsdata/amazonelectronics';
+
+select * from electronics_jsondump_s3 limit 10;
+
+####################################################################
+#CREATE SCHEMA TABLE ON S3 DATA
+
+drop table electronics_columns_s3;
+
+create external table if not exists electronics_columns_s3(reviewerid string, asin string, 
+reviewername string, helpful array<int>, reviewtext string, overall double, summary string, 
+unixreviewtime bigint) ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe' 
+with serdeproperties  ('paths' = '')
+location 's3://electronicsdata/amazonelectronics';
+
+select reviewerid, reviewername, asin, unixreviewtime from electronics_columns_s3 limit 10;
+
+###################################################################
+#NUMBER OF REVIEWERS
+
+select count(*) as review_count, count(distinct reviewerid) as reviewer_count,
+count(distinct asin) as product_count, min(unixreviewtime) as min_time, 
+max(unixreviewtime) as max_time
+from electronics_columns_s3
+
+###################################################################
+#AVERAGE REVIEWS PER REVIEWER
+
+select avg(review_count) 
+from (
+  select reviewerid, count(*) as review_count
+  from electronics_columns_s3 
+  group by reviewerid
+)a;
+
+####################################################################
+#REVIEWS BY DATE
+
+select year(from_unixtime(unixreviewtime)) as yr, count(*) as review_count
+from electronics_columns_s3
+group by year(from_unixtime(unixreviewtime))
+
+####################################################################
+#PARTITION THE DATA
+
+drop table electronics_columns_s3_partitioned_year_month;
+create external table if not exists electronics_columns_s3_partitioned_year_month
+(reviewerid string, asin string, reviewername string, helpful array<int>, reviewtext string,
+overall double, summary string, unixreviewtime bigint) partitioned by (yr int, mnth int)
+location 's3://electronicsdata/amazonelectronics_partition_year_month';
+
+insert overwrite table electronics_columns_s3_partitioned_year_month partition(yr, mnth)
+select reviewerid, asin, reviewername, helpful, reviewtext,
+overall, summary, unixreviewtime, year(from_unixtime(unixreviewtime)) as yr, month(from_unixtime(unixreviewtime)) as mnth
+from electronics_columns_s3
+
+
+####################################################################
+#NON PARTITIONED MONTH QUERY
+
+select overall, count(*) as review_count
+from electronics_columns_s3
+where year(from_unixtime(unixreviewtime)) = 2004
+and month(from_unixtime(unixreviewtime)) = 1
+group by overall
+
+####################################################################
+#RATINGS DISTRIBUTION FOR A MONTH
+
+select overall, count(*) as review_count
+from electronics_columns_s3_partitioned_year_month
+where yr = 2004 and mnth = 1
+group by overall
+
+
+####################################################################
+#CLUSTERING/BUCKETING
+
+drop table electronics_columns_s3_partitioned_year_month_clustered;
+create external table if not exists electronics_columns_s3_partitioned_year_month_clustered
+(reviewerid string, asin string, reviewername string, helpful array<int>, reviewtext string,
+overall double, summary string, unixreviewtime bigint) partitioned by (yr int, mnth int)
+clustered by (reviewerid) into 4 buckets
+location 's3://electronicsdata/electronics_columns_s3_partitioned_year_month_clustered';
+set hive.exec.max.dynamic.partitions=1000;
+set hive.exec.max.dynamic.partitions.pernode=1000;
+
+insert overwrite table electronics_columns_s3_partitioned_year_month_clustered partition(yr, mnth)
+select reviewerid, asin, reviewername, helpful, reviewtext,
+overall, summary, unixreviewtime, yr, mnth
+from electronics_columns_s3_partitioned_year_month
+;
+
+####################################################################
+#PRODUCT POPULARITY VS RATING
+
+select popularity, count(*) as products
+from(
+    select `asin`, count(*) as popularity
+    from electronics_columns_s3_partitioned_year_month
+    where yr = 2012 
+    group by `asin`
+)a
+group by popularity
+
+####################################################################
+
+#CORRELATION BETWEEN REVEWTEXT AND RATING
+select size(split(reviewtext, ' ')) as words, avg(overall)
+from electronics_columns_s3_partitioned_year_month
+where yr = 2013
+group by size(split(reviewtext, ' '))
+
+####################################################################
+
+#CONVERT FILE FORMAT TO ORC
+
+drop table electronics_columns_s3_partitioned_year_month_orc;
+create external table if not exists electronics_columns_s3_partitioned_year_month_orc
+(reviewerid string, asin string, reviewername string, helpful array<int>, reviewtext string,
+overall double, summary string, unixreviewtime bigint) partitioned by (yr int, mnth int)
+stored as orc location 's3://electronicsdata/amazonelectronics_partition_year_month_orc'
+tblproperties ("orc.compress"="SNAPPY");
+
+insert overwrite table electronics_columns_s3_partitioned_year_month_orc partition(yr , mnth)
+select * from electronics_columns_s3_partitioned_year_month;
+
+####################################################################
+
+#FINDING THE LENGTH OF THE USER REVIEWS 
+
+select avg( size(split(reviewtext, ' ')) ) as avg_length, variance( size(split(reviewtext, ' ')) ) as varinc
+from electronics_columns_s3_partitioned_year_month_orc
+where yr = 2013 and mnth = 1
+
+select size(split(reviewtext, ' ')) as words, avg(overall) as avg_rating
+from electronics_columns_s3_partitioned_year_month_orc
+where yr = 2013 and mnth = 1
+group by size(split(reviewtext, ' '))
+
+####################################################################
+
+#TEXT ANALYSIS USING (N-GRAM)
+
+select reviewtext, sentences(lower(reviewtext)) 
+from electronics_columns_s3_partitioned_year_month_orc
+where yr = 2013 and mnth = 1
+limit 10;
+
+SELECT explode( ngrams( sentences( lower(reviewtext) ), 2, 6))
+FROM electronics_columns_s3_partitioned_year_month_orc 
+where yr = 2013 and mnth = 1;
+####################################################################
+
+#TOP 10 PRODUCTS BY MONTH
+
+select helpful[0] as pstv, helpful[1] as total
+from electronics_columns_s3_partitioned_year_month_orc
+where yr = 2013  and
+helpful[1] != 0;
+####################################################################
+
+
+#Arrange the trigrams in ascending order of their occurrence
+SELECT explode( ngrams( sentences( lower(reviewtext) ), 3, 10))
+FROM electronics_columns_s3_partitioned_year_month_orc
+####################################################################
+
+#Calculate how much average number of people find the review helpful to the average number of people who reacted to the review for Feb 2005.
+select avg(helpful[0]), avg(helpful[1])
+from electronics_columns_s3
+where year(from_unixtime(unixreviewtime)) = 2005 
+and month(from_unixtime(unixreviewtime)) = 2
+and helpful[1] != 0;
+####################################################################
+
+#WHICH PRODUCT TOPPED THE CHART LONGEST?
+
+select asin, count(*) as charting_mnths
+from(
+    select yr, mnth, asin, popularity, rnk 
+    from(
+    
+        select yr, mnth, asin, popularity, rank() over (partition by yr, mnth order by popularity desc) as rnk
+        from(
+            select yr, mnth, asin, count(*) as popularity
+            from electronics_columns_s3_partitioned_year_month_orc
+            where yr >= 2012
+            group by yr, mnth, asin
+        )a
+    
+    )b
+    where rnk < 10
+)c
+group by asin
+order by charting_mnths desc
+####################################################################
+
+#HOW DOES THE CHARTING PERIOD DISTRIBUTION LOOK LIKE?
+
+select charting_mnths, count(*) as prods
+from(
+    select asin, count(*) as charting_mnths
+    from(
+        select yr, mnth, asin, popularity, rnk 
+        from(
+        
+            select yr, mnth, asin, popularity, rank() over (partition by yr, mnth order by popularity desc) as rnk
+            from(
+                select yr, mnth, asin, count(*) as popularity
+                from electronics_columns_s3_partitioned_year_month_orc
+                where yr >= 2010
+                group by yr, mnth, asin
+            )a
+        
+        )b
+        where rnk < 10
+    )c
+    group by asin
+)d
+group by charting_mnths
